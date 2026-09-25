@@ -11,6 +11,7 @@ const ChatApp = (() => {
   const incomingFiles = {};           // msgId -> {parts, received, total, meta, gid}
   const mediaBlobs = {};              // msgId -> Blob (videos/archivos, sesión actual)
   const blobURLs = {};                // msgId -> objectURL cache
+  const pendingNames = {};            // pid -> nombre escrito al agregar (se aplica al llegar el hello)
   let currentChat = null;
 
   /* ---------- utilidades ---------- */
@@ -40,11 +41,19 @@ const ChatApp = (() => {
   };
   function toast(t) { console.log('[chat]', t); }
 
+  // Copiar con respaldo manual si el portapapeles falla o no existe.
+  function copyText(t, done) {
+    const fallback = () => { try { prompt('Copia manualmente:', t); } catch (e) {} };
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(t).then(done).catch(fallback);
+    else fallback();
+  }
+
   function blankState() {
     return { myName: '', contacts: {}, groups: {}, messages: {}, unread: {}, online: {} };
   }
 
-  async function persist() {
+  async function doPersist() {
     try {
       localStorage.setItem(LS_DATA, await CryptoBox.encryptJSON(key, S));
     } catch (e) {
@@ -54,6 +63,15 @@ const ChatApp = (() => {
         localStorage.setItem(LS_DATA, await CryptoBox.encryptJSON(key, S));
       } catch (e2) { /* noop */ }
     }
+  }
+
+  let persistChain = Promise.resolve();
+  let stateCorrupt = false; // había datos cifrados que no se pudieron abrir: jamás persistir encima
+  function persist() {
+    // Serializado: evita que una escritura vieja pise a una más nueva.
+    if (stateCorrupt) return Promise.resolve();
+    persistChain = persistChain.then(doPersist).catch(() => {});
+    return persistChain;
   }
 
   function myPeerId() {
@@ -67,7 +85,7 @@ const ChatApp = (() => {
     key = k;
     const raw = localStorage.getItem(LS_DATA);
     try { S = raw ? await CryptoBox.decryptJSON(key, raw) : blankState(); }
-    catch (e) { S = blankState(); }
+    catch (e) { S = blankState(); stateCorrupt = !!raw; }
     if (!S.myName) {
       const n = prompt('¿Cómo te llamas? (tus contactos lo verán)');
       S.myName = (n || 'Yo').trim().slice(0, 30) || 'Yo';
@@ -79,12 +97,16 @@ const ChatApp = (() => {
       bindUI();
       Migrate.init({ getKey: () => key, getPid: () => myId, getState: () => S });
       $('chat-list').innerHTML = '<div class="empty-chats">Sin conexión a internet.<br>El chat necesita internet<br>para conectar con tus contactos.</div>';
+      if (stateCorrupt)
+        alert('No se pudo abrir tu historial guardado (datos dañados). Nada se guardará hasta que uses "Borrar este teléfono" en tu perfil → Pasar a otro teléfono.');
       return;
     }
     startPeer();
     $('chat-app').classList.remove('hidden');
     bindUI(); renderAll(); handleInviteParam();
     Migrate.init({ getKey: () => key, getPid: () => myId, getState: () => S });
+    if (stateCorrupt)
+      alert('No se pudo abrir tu historial guardado (datos dañados). Puedes chatear, pero nada se guardará. Para empezar de cero usa "Borrar este teléfono" en tu perfil → Pasar a otro teléfono.');
   }
 
   function setConnState(st) {
@@ -96,6 +118,13 @@ const ChatApp = (() => {
   }
 
   function startPeer() {
+    // Re-entrada al chat (salir a notas y volver): reutilizar el peer vivo en
+    // vez de crear otro con el mismo id (la red lo reportaría como "ocupado").
+    if (peer && peer.destroyed !== true) {
+      if (peer.disconnected) { setConnState('wait'); try { peer.reconnect(); } catch (e) {} }
+      else setConnState('on');
+      return;
+    }
     setConnState('wait');
     peer = new Peer(myId, { debug: 0 });
     peer.on('open', () => {
@@ -157,7 +186,10 @@ const ChatApp = (() => {
       let conn;
       try { conn = peer.connect(pid, { reliable: true }); }
       catch (e) { return reject(e); }
-      const to = setTimeout(() => reject(new Error('timeout')), 15000);
+      const to = setTimeout(() => {
+        try { conn.close(); } catch (e) {} // evita un canal tardío duplicado
+        reject(new Error('timeout'));
+      }, 15000);
       conn.on('open', () => {
         clearTimeout(to);
         conns[pid] = conn; wireConn(conn);
@@ -187,7 +219,12 @@ const ChatApp = (() => {
   function upsertContact(pid, name) {
     if (!pid || pid === myId) return;
     const c = S.contacts[pid] || { id: pid, name: '' };
-    if (name) c.name = String(name).slice(0, 30);
+    if (pendingNames[pid]) {
+      // Nombre que yo le puse al agregar: gana sobre el del perfil (no se sobrescribe con hellos posteriores).
+      c.name = pendingNames[pid]; c.customName = true; delete pendingNames[pid];
+    } else if (name && !c.customName) {
+      c.name = String(name).slice(0, 30);
+    }
     if (!c.name) c.name = pid;
     S.contacts[pid] = c;
     S.online[pid] = true;
@@ -203,6 +240,16 @@ const ChatApp = (() => {
         upsertContact(pid, d.name);
         if (d.kind === 'hello') conn.send({ kind: 'hello-ack', name: S.myName });
         conn.send({ kind: 'presence', status: 'online' });
+        // Si soy creador de grupos donde participa, reenviar invitación y
+        // miembros (cubre al que estaba offline cuando se creó el grupo).
+        for (const g of Object.values(S.groups)) {
+          if (g.creator === myId && g.members.some(mb => mb.id === pid)) {
+            try {
+              conn.send({ kind: 'group-invite', group: g });
+              conn.send({ kind: 'group-members', gid: g.gid, members: g.members });
+            } catch (e) {}
+          }
+        }
         renderAll(); persist(); updateStatus();
         break;
       case 'presence':
@@ -275,7 +322,8 @@ const ChatApp = (() => {
         if (mb.id !== myId && mb.id !== d.m.from)
           ensureConn(mb.id).then(c => c.send({ kind: 'group-msg', gid: d.gid, m: d.m })).catch(() => {});
       });
-    } else if (currentChat !== chatId) {
+    }
+    if (currentChat !== chatId) {
       S.unread[chatId] = (S.unread[chatId] || 0) + 1;
       pushNotify(g.name, d.m.kind === 'text' ? d.m.name + ': ' + d.m.text : '📎 Archivo');
     }
@@ -309,14 +357,17 @@ const ChatApp = (() => {
     const g = S.groups[chatId.slice(2)];
     appendMessage(chatId, m);
     if (!g) return;
+    // En el cable el remitente lleva su pid real (no 'me'): así los demás lo
+    // ven como entrante y el relay del creador puede excluir al remitente.
+    const wire = { ...m, from: myId };
     if (g.creator === myId) {
       g.members.forEach(mb => {
         if (mb.id === myId) return;
-        ensureConn(mb.id).then(c => c.send({ kind: 'group-msg', gid: g.gid, m })).catch(() => {});
+        ensureConn(mb.id).then(c => c.send({ kind: 'group-msg', gid: g.gid, m: wire })).catch(() => {});
       });
     } else {
       ensureConn(g.creator)
-        .then(c => c.send({ kind: 'group-msg', gid: g.gid, m }))
+        .then(c => c.send({ kind: 'group-msg', gid: g.gid, m: wire }))
         .catch(() => toast('Grupo no disponible (creador offline)'));
     }
     renderAll(); persist();
@@ -340,8 +391,19 @@ const ChatApp = (() => {
     }
     // file-end
     if (f.gid) relayFileChunk(pid, f.gid, d);
-    const bin = f.parts.join('');
-    const bytes = Uint8Array.from(atob(bin), c => c.charCodeAt(0));
+    // Cada chunk trae su propio padding base64: NO se pueden unir los textos.
+    // Se decodifica cada chunk por separado y se unen los BYTES.
+    const chunks = [];
+    for (let i = 0; i < f.total; i++) {
+      const p = f.parts[i];
+      if (typeof p !== 'string') throw new Error('chunk-faltante');
+      chunks.push(Uint8Array.from(atob(p), c => c.charCodeAt(0)));
+    }
+    let len = 0;
+    for (const c of chunks) len += c.length;
+    const bytes = new Uint8Array(len);
+    let off = 0;
+    for (const c of chunks) { bytes.set(c, off); off += c.length; }
     const blob = new Blob([bytes], { type: f.meta.mime });
     mediaBlobs[d.msgId] = blob;
     const chatId = f.gid ? 'g:' + f.gid : pid;
@@ -350,7 +412,7 @@ const ChatApp = (() => {
       ts: Date.now(), kind: f.meta.kind, fileName: f.meta.name,
       fileSize: f.meta.size, mime: f.meta.mime, read: false
     };
-    if (f.meta.kind === 'image') m.media = 'data:' + f.meta.mime + ';base64,' + bin;
+    if (f.meta.kind === 'image') m.media = 'data:' + f.meta.mime + ';base64,' + bytesToB64(bytes);
     appendMessage(chatId, m);
     delete incomingFiles[d.msgId];
     if (currentChat !== chatId) {
@@ -399,6 +461,7 @@ const ChatApp = (() => {
   }
 
   async function sendFile(chatId, file) {
+    if (file.size > 100 * 1024 * 1024) { alert('El archivo es muy grande (máximo 100 MB).'); return; }
     const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file';
     const msgId = uid();
     const payload = kind === 'image' ? dataURLtoBytes(await downscaleImage(file)) : new Uint8Array(await file.arrayBuffer());
@@ -432,6 +495,7 @@ const ChatApp = (() => {
           c.send({ kind: 'file-chunk', msgId, idx: i, data: bytesToB64(payload.subarray(i * CHUNK, (i + 1) * CHUNK)) });
           m.progress = (i + 1) / total;
           if (i % 4 === 0 || i === total - 1) updateFileProgress(msgId, m.progress);
+          if (i % 20 === 0) await new Promise(r => setTimeout(r, 30)); // cede el hilo, no inunda el canal
         }
         c.send({ kind: 'file-end', msgId, meta });
         m.ticks = 2; m.progress = 1;
@@ -650,14 +714,15 @@ const ChatApp = (() => {
     if (!code) { err.textContent = 'Escribe el código.'; err.classList.remove('hidden'); return; }
     if (code === myId) { err.textContent = 'Ese es tu propio código.'; err.classList.remove('hidden'); return; }
     $('add-ok').textContent = 'Conectando…';
+    if (name) pendingNames[code] = name;
     try {
       await ensureConn(code);
-      if (name && S.contacts[code]) S.contacts[code].name = name;
       await persist();
       $('sheet-new').classList.add('hidden');
       $('add-code').value = ''; $('add-name').value = '';
       renderAll(); openChat(code);
     } catch (e) {
+      delete pendingNames[code];
       err.textContent = 'No se pudo conectar. Revisa el código y que la otra persona tenga la app abierta.';
       err.classList.remove('hidden');
     }
@@ -731,9 +796,17 @@ const ChatApp = (() => {
       const s = Math.floor((Date.now() - t0) / 1000);
       $('call-timer').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
     }, 1000);
-    call.on('stream', st => { $('remote-video').srcObject = st; });
+    call.on('stream', st => {
+      $('remote-video').srcObject = st;
+      if (activeCall) clearTimeout(activeCall.streamTimer); // contestó: ya no hace falta el timeout
+    });
     call.on('close', () => hangup());
     call.on('error', () => hangup());
+    // Si en 30s no llega audio/video, colgar con aviso (la otra persona no respondió).
+    clearTimeout(activeCall.streamTimer);
+    activeCall.streamTimer = setTimeout(() => {
+      if (activeCall) { hangup(); alert('No respondió. Inténtalo de nuevo.'); }
+    }, 30000);
   }
 
   function stopTracks() {
@@ -742,7 +815,11 @@ const ChatApp = (() => {
   }
 
   function hangup() {
-    if (activeCall) { try { activeCall.call.close(); } catch (e) {} activeCall = null; }
+    if (activeCall) {
+      clearTimeout(activeCall.streamTimer);
+      try { activeCall.call.close(); } catch (e) {}
+      activeCall = null;
+    }
     clearInterval(callInt);
     stopTracks();
     $('active-call').classList.add('hidden');
@@ -764,6 +841,11 @@ const ChatApp = (() => {
 
   function onIncomingCall(call) {
     const md = call.metadata || {};
+    if (activeCall || pendingCall) {
+      // Ocupado: rechazar la segunda llamada sin tocar la actual.
+      try { call.close(); } catch (e) {}
+      return;
+    }
     pendingCall = call;
     $('incoming-name').textContent = md.name || call.peer;
     const av = $('incoming-avatar');
@@ -824,6 +906,7 @@ const ChatApp = (() => {
   }
 
   /* ---------- bind UI ---------- */
+  let uiBound = false;
   function bindUI() {
     $('chat-back-notes').onclick = () => {
       if (currentChat) closeChat();
@@ -855,19 +938,18 @@ const ChatApp = (() => {
       $('sheet-profile').classList.add('hidden');
     };
     $('btn-copy-code').onclick = () => {
-      const done = () => { $('btn-copy-code').textContent = '¡Copiado!'; setTimeout(() => $('btn-copy-code').textContent = 'Copiar', 1500); };
-      if (navigator.clipboard) navigator.clipboard.writeText(myId.toUpperCase()).then(done).catch(() => {});
-      else done();
+      copyText(myId.toUpperCase(),
+        () => { $('btn-copy-code').textContent = '¡Copiado!'; setTimeout(() => $('btn-copy-code').textContent = 'Copiar', 1500); });
     };
     $('btn-copy-invite').onclick = () => {
-      const link = location.origin + location.pathname + '?add=' + myId.toUpperCase();
-      const done = () => { $('btn-copy-invite').textContent = '¡Link copiado!'; setTimeout(() => $('btn-copy-invite').textContent = 'Copiar link de invitación', 1500); };
-      if (navigator.clipboard) navigator.clipboard.writeText(link).then(done).catch(() => {});
-      else done();
+      copyText(location.origin + location.pathname + '?add=' + myId.toUpperCase(),
+        () => { $('btn-copy-invite').textContent = '¡Link copiado!'; setTimeout(() => $('btn-copy-invite').textContent = 'Copiar link de invitación', 1500); });
     };
     $('btn-mig-export').onclick = () => { $('sheet-profile').classList.add('hidden'); Migrate.openExport(); };
     $('btn-mig-import').onclick = () => { $('sheet-profile').classList.add('hidden'); Migrate.openImport(); };
     $('btn-send').onclick = sendText;
+    if (uiBound) return; // init corre en cada desbloqueo con PIN: no duplicar listeners
+    uiBound = true;
     $('msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendText(); });
     $('msg-input').addEventListener('input', () => {
       sendTyping(true);
