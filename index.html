@@ -115,7 +115,65 @@
       <p class="muted">Tu código (compártelo para que te agreguen)</p>
       <div class="code-row"><code id="profile-code">—</code><button id="btn-copy-code" class="btn btn-ghost">Copiar</button></div>
       <button id="btn-copy-invite" class="btn btn-primary btn-block btn-big">Copiar link de invitación</button>
+      <hr class="sep">
+      <p class="muted">Cambiar de teléfono</p>
+      <button id="btn-mig-export" class="btn btn-ghost btn-block btn-big">📤 Pasar a otro teléfono</button>
+      <button id="btn-mig-import" class="btn btn-ghost btn-block btn-big">📥 Recibir de otro teléfono</button>
       <button id="sheet-profile-close" class="btn btn-ghost btn-block">Cerrar</button>
+    </div>
+  </div>
+
+  <div id="sheet-mig-export" class="modal hidden">
+    <div class="modal-card">
+      <h3>Pasar a otro teléfono</h3>
+      <div id="mig-exp-step1">
+        <p class="muted">Genera un código único. En el otro teléfono abre el chat, ve a tu perfil y toca "Recibir de otro teléfono".</p>
+        <button id="btn-mig-generate" class="btn btn-primary btn-block btn-big">Generar código</button>
+      </div>
+      <div id="mig-exp-done" class="hidden">
+        <p class="muted">Escribe este código en el otro teléfono:</p>
+        <div id="mig-exp-code" class="mig-code">······</div>
+        <div id="mig-qr" class="qr-wrap"></div>
+        <p id="mig-exp-warn-media" class="error hidden">El paquete era muy grande: las fotos no se incluyeron, solo textos, contactos y grupos.</p>
+        <button id="btn-mig-copy" class="btn btn-primary btn-block btn-big">Copiar texto</button>
+        <div class="mig-warn">⚠️ Después de migrar, <b>no uses el chat en este teléfono al mismo tiempo</b>. Cuando el otro teléfono ya haya entrado, bórralo aquí.</div>
+        <button id="btn-mig-wipe" class="btn btn-danger btn-block btn-big">Borrar todo en este teléfono</button>
+      </div>
+      <button id="sheet-mig-export-close" class="btn btn-ghost btn-block">Cerrar</button>
+    </div>
+  </div>
+
+  <div id="sheet-mig-import" class="modal hidden">
+    <div class="modal-card">
+      <h3>Recibir de otro teléfono</h3>
+      <div id="mig-imp-step1">
+        <p class="muted">En el teléfono viejo: perfil → "Pasar a otro teléfono".</p>
+        <button id="btn-mig-scan" class="btn btn-primary btn-block btn-big">📷 Escanear QR</button>
+        <button id="btn-mig-paste" class="btn btn-ghost btn-block btn-big">📋 Pegar texto</button>
+        <div id="mig-paste-wrap" class="hidden">
+          <textarea id="mig-imp-text" rows="4" placeholder="Pega aquí el texto de migración…"></textarea>
+          <button id="btn-mig-paste-go" class="btn btn-primary btn-block btn-big">Continuar</button>
+        </div>
+      </div>
+      <div id="mig-scan-view" class="hidden">
+        <video id="mig-video" playsinline muted></video>
+        <p class="muted">Apunta al código QR del otro teléfono.</p>
+        <button id="mig-scan-cancel" class="btn btn-ghost btn-block">Cancelar</button>
+      </div>
+      <div id="mig-imp-step2" class="hidden">
+        <p class="muted">Escribe el código de 6 dígitos que muestra el otro teléfono:</p>
+        <input id="mig-imp-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="······" autocomplete="off">
+        <button id="btn-mig-decrypt" class="btn btn-primary btn-block btn-big">Recuperar</button>
+      </div>
+      <div id="mig-imp-step3" class="hidden">
+        <p class="muted">Se encontró tu cuenta:</p>
+        <div class="code-row"><code id="mig-imp-found">—</code></div>
+        <p id="mig-imp-summary" class="muted"></p>
+        <p id="mig-imp-overwrite-warn" class="error hidden">Ya tienes chats en este teléfono. Se reemplazarán por los del otro.</p>
+        <button id="btn-mig-apply" class="btn btn-primary btn-block btn-big">Pasar todo a este teléfono</button>
+      </div>
+      <p id="mig-imp-error" class="error hidden"></p>
+      <button id="sheet-mig-import-close" class="btn btn-ghost btn-block">Cerrar</button>
     </div>
   </div>
 
@@ -152,5 +210,8 @@
 <script src="js/crypto.js"></script>
 <script src="js/app.js"></script>
 <script src="js/chat.js"></script>
+<script src="js/qrcode-gen.js"></script>
+<script src="js/jsQR.js"></script>
+<script src="js/migrate.js"></script>
 </body>
 </html>

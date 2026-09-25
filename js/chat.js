@@ -76,21 +76,47 @@ const ChatApp = (() => {
     if (typeof Peer === 'undefined') {
       $('chat-app').classList.remove('hidden');
       bindUI();
+      Migrate.init({ getKey: () => key, getPid: () => myId, getState: () => S });
       $('chat-list').innerHTML = '<div class="empty-chats">Sin conexión a internet.<br>El chat necesita internet<br>para conectar con tus contactos.</div>';
       return;
     }
     startPeer();
     $('chat-app').classList.remove('hidden');
     bindUI(); renderAll(); handleInviteParam();
+    Migrate.init({ getKey: () => key, getPid: () => myId, getState: () => S });
   }
 
   function startPeer() {
     peer = new Peer(myId, { debug: 0 });
-    peer.on('open', () => renderAll());
+    peer.on('open', () => {
+      try { localStorage.removeItem('notas_migrated'); } catch (e) {}
+      renderAll();
+    });
     peer.on('connection', onIncomingConn);
     peer.on('call', onIncomingCall);
     peer.on('error', err => {
       if (err && err.type === 'unavailable-id') {
+        if (localStorage.getItem('notas_migrated')) {
+          // Identidad recién migrada: el otro teléfono quizá sigue conectado.
+          // Reintenta con el MISMO id unos segundos antes de rendirse.
+          let tries = 0;
+          const retry = () => {
+            tries++;
+            if (tries > 20) {
+              localStorage.removeItem('notas_migrated');
+              localStorage.removeItem('notas_pid');
+              myId = myPeerId();
+              try { peer.destroy(); } catch (e) {}
+              startPeer();
+              alert('No se pudo recuperar tu código porque el otro teléfono sigue conectado. Se generó uno nuevo.');
+              return;
+            }
+            try { peer.destroy(); } catch (e) {}
+            setTimeout(startPeer, 3000);
+          };
+          retry();
+          return;
+        }
         localStorage.removeItem('notas_pid');
         myId = myPeerId();
         try { peer.destroy(); } catch (e) {}
@@ -817,6 +843,8 @@ const ChatApp = (() => {
       if (navigator.clipboard) navigator.clipboard.writeText(link).then(done).catch(() => {});
       else done();
     };
+    $('btn-mig-export').onclick = () => { $('sheet-profile').classList.add('hidden'); Migrate.openExport(); };
+    $('btn-mig-import').onclick = () => { $('sheet-profile').classList.add('hidden'); Migrate.openImport(); };
     $('btn-send').onclick = sendText;
     $('msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendText(); });
     $('msg-input').addEventListener('input', () => {

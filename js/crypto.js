@@ -18,8 +18,8 @@ const CryptoBox = (() => {
     return s;
   }
 
-  async function deriveKey(password) {
-    const saltBytes = Uint8Array.from(atob(getSalt()), c => c.charCodeAt(0));
+  async function deriveKeyFrom(password, saltB64) {
+    const saltBytes = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
     const baseKey = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
     return crypto.subtle.deriveKey(
       { name: 'PBKDF2', salt: saltBytes, iterations: 120000, hash: 'SHA-256' },
@@ -27,7 +27,22 @@ const CryptoBox = (() => {
     );
   }
 
-  const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  async function deriveKey(password) {
+    return deriveKeyFrom(password, getSalt());
+  }
+
+  function randomSaltB64() {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return btoa(String.fromCharCode(...bytes));
+  }
+
+  const b64 = buf => {
+    const bytes = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 8192)
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    return btoa(s);
+  };
   const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
 
   async function encryptJSON(key, obj) {
@@ -42,5 +57,5 @@ const CryptoBox = (() => {
     return JSON.parse(dec.decode(plain));
   }
 
-  return { sha256Hex, deriveKey, encryptJSON, decryptJSON };
+  return { sha256Hex, deriveKey, deriveKeyFrom, randomSaltB64, encryptJSON, decryptJSON };
 })();
