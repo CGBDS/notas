@@ -180,3 +180,10 @@ input:focus,textarea:focus{border-color:var(--accent)}
 #mig-video{width:100%;border-radius:14px;background:#000;max-height:46dvh}
 #mig-imp-code{font-size:36px;letter-spacing:12px;text-align:center;width:100%;padding:14px 10px 14px 22px;border-radius:14px;border:1px solid var(--panel2);background:var(--panel2);color:var(--text);margin:6px 0}
 #mig-imp-text{width:100%;border-radius:12px;padding:12px;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid transparent;margin-top:10px;box-sizing:border-box}
+
+/* Punto de estado de conexión */
+.conn-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-left: 8px; background: #666; flex: none; }
+.conn-dot.on { background: #2fd47a; box-shadow: 0 0 6px #2fd47a; }
+.conn-dot.off { background: #ff5b5b; }
+.conn-dot.wait { background: #ffcf3c; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .4; } }

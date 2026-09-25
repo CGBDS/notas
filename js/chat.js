@@ -5,6 +5,7 @@ const ChatApp = (() => {
   const CHUNK = 64 * 1024;
 
   let key = null, peer = null, myId = null;
+  let _idTries = 0;                     // reintentos con el mismo id si está "ocupado"
   let S = null;                       // estado cifrado
   const conns = {};                   // pid -> DataConnection
   const incomingFiles = {};           // msgId -> {parts, received, total, meta, gid}
@@ -86,45 +87,66 @@ const ChatApp = (() => {
     Migrate.init({ getKey: () => key, getPid: () => myId, getState: () => S });
   }
 
+  function setConnState(st) {
+    // st: 'on' | 'off' | 'wait'
+    const d = $('conn-dot');
+    if (!d) return;
+    d.className = 'conn-dot ' + st;
+    d.title = st === 'on' ? 'Conectado: tu código funciona' : st === 'wait' ? 'Reconectando…' : 'Sin conexión: tu código no funciona ahora';
+  }
+
   function startPeer() {
+    setConnState('wait');
     peer = new Peer(myId, { debug: 0 });
     peer.on('open', () => {
       try { localStorage.removeItem('notas_migrated'); } catch (e) {}
+      _idTries = 0;
+      setConnState('on');
       renderAll();
     });
     peer.on('connection', onIncomingConn);
     peer.on('call', onIncomingCall);
     peer.on('error', err => {
       if (err && err.type === 'unavailable-id') {
-        if (localStorage.getItem('notas_migrated')) {
-          // Identidad recién migrada: el otro teléfono quizá sigue conectado.
-          // Reintenta con el MISMO id unos segundos antes de rendirse.
-          let tries = 0;
-          const retry = () => {
-            tries++;
-            if (tries > 20) {
-              localStorage.removeItem('notas_migrated');
-              localStorage.removeItem('notas_pid');
-              myId = myPeerId();
-              try { peer.destroy(); } catch (e) {}
-              startPeer();
-              alert('No se pudo recuperar tu código porque el otro teléfono sigue conectado. Se generó uno nuevo.');
-              return;
-            }
-            try { peer.destroy(); } catch (e) {}
-            setTimeout(startPeer, 3000);
-          };
-          retry();
+        // El código parece ocupado. NO lo cambiamos en silencio: reintentamos
+        // con el MISMO id (suele ser una sesión vieja nuestra muriendo).
+        _idTries = (_idTries || 0) + 1;
+        if (_idTries <= 10) {
+          setConnState('wait');
+          try { peer.destroy(); } catch (e) {}
+          setTimeout(startPeer, 3000);
           return;
         }
-        localStorage.removeItem('notas_pid');
-        myId = myPeerId();
-        try { peer.destroy(); } catch (e) {}
-        startPeer();
+        _idTries = 0;
+        setConnState('off');
+        if (confirm('Tu código de chat está ocupado en este momento. ¿Generar un código nuevo? (Tendrás que compartirlo de nuevo)')) {
+          localStorage.removeItem('notas_pid');
+          localStorage.removeItem('notas_migrated');
+          myId = myPeerId();
+          try { peer.destroy(); } catch (e) {}
+          startPeer();
+        }
+        return;
+      }
+      if (err && (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed')) {
+        setConnState('wait');
       }
     });
-    peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
+    peer.on('disconnected', () => {
+      setConnState('wait');
+      try { peer.reconnect(); } catch (e) {}
+    });
+    peer.on('close', () => setConnState('off'));
   }
+
+  // Al volver a la app (p. ej. después de ir a WhatsApp a mandar tu código),
+  // reconecta de inmediato si el teléfono había soltado la conexión.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && peer && !peer.destroyed && peer.disconnected) {
+      setConnState('wait');
+      try { peer.reconnect(); } catch (e) {}
+    }
+  });
 
   /* ---------- conexiones ---------- */
   function ensureConn(pid) {
