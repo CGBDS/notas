@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Mis Notas</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============ APP DE NOTAS (disfraz) ============ -->
+<div id="notes-app" class="screen">
+  <header id="notes-header" class="app-header">
+    <h1 id="notes-title">Mis Notas</h1>
+    <span class="spacer"></span>
+    <span class="header-hint">🔍</span>
+  </header>
+  <div id="notes-search-wrap"><input id="notes-search" type="text" placeholder="Buscar notas…" enterkeyhint="search"></div>
+  <main id="notes-list"></main>
+  <button id="notes-fab" class="fab" aria-label="Nueva nota">+</button>
+
+  <div id="note-editor" class="modal hidden">
+    <div class="modal-card">
+      <input id="note-title-input" type="text" placeholder="Título" maxlength="80" enterkeyhint="next">
+      <textarea id="note-body-input" placeholder="Escribe aquí…"></textarea>
+      <div class="modal-actions">
+        <button id="note-delete" class="btn btn-danger hidden">Eliminar</button>
+        <span class="spacer"></span>
+        <button id="note-cancel" class="btn btn-ghost">Cancelar</button>
+        <button id="note-save" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PIN ============ -->
+<div id="lock-screen" class="screen hidden">
+  <div class="lock-card">
+    <div class="lock-icon">🔐</div>
+    <h2 id="lock-title">Crea tu PIN</h2>
+    <p id="lock-sub" class="muted">De 4 a 8 dígitos. Solo tú podrás entrar aquí.</p>
+    <div id="pin-dots" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div id="pin-pad">
+      <button data-d="1">1</button><button data-d="2">2</button><button data-d="3">3</button>
+      <button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
+      <button data-d="7">7</button><button data-d="8">8</button><button data-d="9">9</button>
+      <button id="pin-ok" class="pin-go">✓</button><button data-d="0">0</button><button id="pin-del">⌫</button>
+    </div>
+    <p id="lock-error" class="error hidden"></p>
+    <button id="lock-back" class="btn btn-ghost btn-block">Volver a notas</button>
+  </div>
+</div>
+
+<!-- ============ APP DE CHAT ============ -->
+<div id="chat-app" class="screen hidden">
+  <section id="view-chats" class="view">
+    <header class="app-header chat-header">
+      <button id="chat-back-notes" class="icon-btn" title="Volver">‹</button>
+      <h1>Chats</h1>
+      <span class="spacer"></span>
+      <button id="btn-profile" class="icon-btn" title="Mi perfil">👤</button>
+    </header>
+    <main id="chat-list"></main>
+    <button id="chat-fab" class="fab" aria-label="Nuevo chat">💬</button>
+  </section>
+
+  <section id="view-conv" class="view hidden">
+    <header class="app-header conv-header">
+      <button id="conv-back" class="icon-btn" aria-label="Atrás">‹</button>
+      <div id="conv-avatar" class="avatar">?</div>
+      <div class="conv-title">
+        <div id="conv-name">—</div>
+        <div id="conv-status" class="status">—</div>
+      </div>
+      <span class="spacer"></span>
+      <button id="btn-call-voice" class="icon-btn" title="Llamada de voz">📞</button>
+      <button id="btn-call-video" class="icon-btn" title="Videollamada">🎥</button>
+    </header>
+    <div id="typing-bar" class="typing-bar hidden">escribiendo…</div>
+    <main id="messages"></main>
+    <footer id="composer">
+      <label class="icon-btn attach-btn" title="Adjuntar" aria-label="Adjuntar">📎<input id="file-input" type="file" class="hidden" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.mp3,.m4a"></label>
+      <input id="msg-input" type="text" placeholder="Mensaje" autocomplete="off" enterkeyhint="send">
+      <button id="btn-send" class="icon-btn send-btn" title="Enviar" aria-label="Enviar">➤</button>
+    </footer>
+  </section>
+
+  <div id="sheet-new" class="modal hidden">
+    <div class="modal-card">
+      <h3>Nuevo</h3>
+      <div class="tabs"><button id="tab-add" class="tab active">Agregar persona</button><button id="tab-group" class="tab">Crear grupo</button></div>
+      <div id="pane-add">
+        <p class="muted">Pide su código y escríbelo aquí:</p>
+        <input id="add-code" type="text" placeholder="CBCHAT-XXXXXX" autocomplete="off" autocapitalize="characters" enterkeyhint="next">
+        <input id="add-name" type="text" placeholder="Nombre (opcional)" maxlength="30" enterkeyhint="done">
+        <p id="add-error" class="error hidden"></p>
+        <button id="add-ok" class="btn btn-primary btn-block btn-big">Agregar</button>
+      </div>
+      <div id="pane-group" class="hidden">
+        <input id="group-name" type="text" placeholder="Nombre del grupo" maxlength="40" enterkeyhint="done">
+        <p class="muted">Elige quiénes participan:</p>
+        <div id="group-pick"></div>
+        <p id="group-error" class="error hidden"></p>
+        <button id="group-ok" class="btn btn-primary btn-block btn-big">Crear grupo</button>
+      </div>
+      <button id="sheet-new-close" class="btn btn-ghost btn-block">Cerrar</button>
+    </div>
+  </div>
+
+  <div id="sheet-profile" class="modal hidden">
+    <div class="modal-card">
+      <h3>Mi perfil</h3>
+      <p class="muted">Tu nombre</p>
+      <input id="profile-name" type="text" maxlength="30" enterkeyhint="done">
+      <p class="muted">Tu código (compártelo para que te agreguen)</p>
+      <div class="code-row"><code id="profile-code">—</code><button id="btn-copy-code" class="btn btn-ghost">Copiar</button></div>
+      <button id="btn-copy-invite" class="btn btn-primary btn-block btn-big">Copiar link de invitación</button>
+      <button id="sheet-profile-close" class="btn btn-ghost btn-block">Cerrar</button>
+    </div>
+  </div>
+
+  <div id="incoming-call" class="modal hidden">
+    <div class="modal-card call-card">
+      <div id="incoming-avatar" class="avatar big">?</div>
+      <h3 id="incoming-name">—</h3>
+      <p id="incoming-type" class="muted">Llamada entrante…</p>
+      <div class="call-actions">
+        <button id="incoming-reject" class="btn btn-danger btn-round" aria-label="Rechazar">✕</button>
+        <button id="incoming-accept" class="btn btn-primary btn-round" aria-label="Aceptar">✓</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="active-call" class="hidden">
+    <video id="remote-video" autoplay playsinline></video>
+    <div id="remote-avatar-fallback" class="avatar big hidden">?</div>
+    <video id="local-video" autoplay playsinline muted></video>
+    <div id="call-info"><span id="call-name">—</span><span id="call-timer">00:00</span></div>
+    <div class="call-controls">
+      <button id="btn-toggle-screen" class="btn btn-ghost btn-round" title="Compartir pantalla" aria-label="Compartir pantalla">🖥️</button>
+      <button id="btn-hangup" class="btn btn-danger btn-round" aria-label="Colgar">✕</button>
+    </div>
+  </div>
+
+  <div id="image-viewer" class="modal hidden">
+    <img id="viewer-img" src="" alt="">
+    <button id="viewer-close" class="btn btn-danger btn-round" aria-label="Cerrar">✕</button>
+  </div>
+</div>
+
+<script src="js/peerjs.min.js"></script>
+<script src="js/crypto.js"></script>
+<script src="js/app.js"></script>
+<script src="js/chat.js"></script>
+</body>
+</html>
